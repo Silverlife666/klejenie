@@ -43,8 +43,8 @@ label.file input{display:none}
 <main class="wrap"><div class="tabs">
 <button id="tb_orders" onclick="tab('orders',this)">Zlecenia</button><button id="tb_entry" onclick="tab('entry',this)">Wpisy produkcyjne</button><button id="tb_summary" onclick="tab('summary',this)">Podsumowanie</button><button id="tb_bilans" onclick="tab('bilans',this)">Bilans zleceń</button><button id="tb_config" onclick="tab('config',this)">Konfiguracja</button><button id="tb_data" onclick="tab('data',this)">Import / eksport</button><button id="tb_log" onclick="tab('log',this)">Log</button></div>
 
-<section id="orders" class="show"><div class="panel"><h3>Nowe zlecenie</h3><div class="grid"><label>Nazwa / numer zlecenia<input id="newOrder"></label><label>Ilość docelowa [szt.] (opcjonalnie)<input id="newTarget" type="number" min="0"></label></div><button onclick="addOrder()">Dodaj zlecenie</button></div>
-<div class="panel"><h3>Przepływ zleceń: Rolsiarka → Pakowanie → Klejenie</h3><p id="flowSrc" class="hint"></p><div id="flowList" class="xs"></div><p class="hint">Zlecenia założone w Etapie 1 lub spakowane w Etapie 2 widać tu od razu, razem z ilością dostępną do klejenia (WIP 2). Zlecenie trafia na „Listę zleceń” poniżej automatycznie przy pierwszym wpisie klejenia albo przyciskiem „➕ Dodaj do listy”.</p></div>
+<section id="orders" class="show"><div class="panel"><h3>Wspólna lista zleceń</h3><p class="hint">Zlecenia zakłada się, zmienia i zamyka w Etapie 1. Ta lista jest tylko do odczytu i odświeża się razem z danymi z Etapu 1.</p></div>
+<div class="panel"><h3>Przepływ zleceń: Rolsiarka → Pakowanie → Klejenie</h3><p id="flowSrc" class="hint"></p><div id="flowList" class="xs"></div><p class="hint">Zlecenia założone w Etapie 1 lub spakowane w Etapie 2 widać tu od razu, razem z ilością dostępną do klejenia (WIP 2). Lista zleceń jest wspólna dla wszystkich etapów: zlecenia zakłada się i zamyka w Etapie 1.</p></div>
 <div class="panel"><h3>Lista zleceń</h3><div id="orderList" class="xs"></div></div></section>
 
 <section id="entry"><div class="panel"><h3>Wpis produkcyjny</h3><div class="grid">
@@ -86,7 +86,7 @@ label.file input{display:none}
 <label>Uwagi<textarea id="eNotes"></textarea></label><button class="ok" onclick="saveEdit()">💾 Zapisz zmiany</button> <button onclick="cancelEdit()">Anuluj</button></div></div>
 
 <script>
-const APP_VERSION='1.3.5',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
+const APP_VERSION='1.4.0',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
 const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'),today=()=>ymd(new Date());
 const fdate=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||'');return m?m[3]+'.'+m[2]+'.'+m[1]:(d||'—')};
@@ -101,7 +101,8 @@ function ensureUid(e){if(!e.uid)e.uid='h'+hash(JSON.stringify(e));e.updated??=0;
 const stamp=()=>{const n=new Date(),p=v=>String(v).padStart(2,'0');return p(n.getHours())+':'+p(n.getMinutes())+' ('+p(n.getDate())+'.'+p(n.getMonth()+1)+')'};
 const setSync=t=>{$('sync').textContent='Status: '+t;$('last').textContent='Ostatnia zmiana: '+(state.lastModified||'—')};
 const sum=(a,k)=>a.reduce((s,x)=>s+(+x[k]||0),0),list=v=>v.split(',').map(x=>x.trim()).filter(Boolean);
-const orderByName=n=>state.orders.find(x=>x.name===n);
+function ords(){let o;try{o=X.roll.orders}catch(_){}return o&&o.length?o:state.orders}
+const orderByName=n=>ords().find(x=>x.name===n);
 
 /* ===== synchronizacja z Supabase (funkcja klejenie-sync) ===== */
 function pack(cl=true){return{format:'system-produkcji/klejenie',version:1,app_version:APP_VERSION,exported_at:new Date().toISOString(),data:{orders:state.orders,entries:state.entries,settings:{employees:state.cfg.employees,default_shift:state.cfg.shift,default_people:state.cfg.people,idle_min:state.cfg.idleMin,work_days:state.cfg.workDays,fc_window:state.cfg.fcWin,company:state.cfg.company,report_footer:state.cfg.footer,pdf_history:state.cfg.pdfHistory}},sync:{...(cl?{users:state.users,log:state.log,deleted_users:state.deletedUsers}:{}),deleted_entries:state.deletedEntries,deleted_orders:state.deletedOrders,deleted_order_ts:state.deletedOrderTs,cfg_updated:state.cfgUpdated,last_modified:state.lastModified}}}
@@ -193,10 +194,12 @@ let X=JSON.parse(localStorage.getItem(LSX)||'null')||{roll:null,pack:null,rollAt
 const hhmm=t=>{if(!t)return'—';const n=new Date(t),p=v=>String(v).padStart(2,'0');return p(n.getHours())+':'+p(n.getMinutes())};
 const setX=t=>{const e=$('xSt');if(e)e.textContent='WIP: '+t};
 async function fj(url){const c=new AbortController(),t=setTimeout(()=>c.abort(),6000);try{const r=await fetch(url+'?nocache='+Date.now(),{cache:'no-store',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(t)}}
-const normRoll=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||('h'+hash(JSON.stringify(e))),date:e.date||'',order:e.order||'',machine:e.machine||'',bobbin:e.bobbin_index||'',produced:+e.produced||0})),orders:(d.orders||[]).map(o=>({name:o.name,target:+o.target||0}))}};
+const normRoll=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||('h'+hash(JSON.stringify(e))),date:e.date||'',order:e.order||'',machine:e.machine||'',bobbin:e.bobbin_index||'',produced:+e.produced||0})),orders:(d.orders||[]).map(o=>({name:o.name,target:+o.target||0,closed:!!o.closed,aliases:Array.isArray(o.aliases)?o.aliases:[]}))}};
 const normPack=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||'',date:e.date||'',order:e.src_order||'',src_uid:e.src_uid||'',code:e.src_code||'',packed:+e.packed||0,waste:+e.waste||0,emps:(e.employees&&e.employees.length?e.employees:[e.employee]).filter(Boolean)}))}};
+function healNames(){const os=X.roll&&X.roll.orders||[];if(!os.length)return;const cur=new Set(os.map(o=>o.name)),al=new Map();os.forEach(o=>(o.aliases||[]).forEach(a=>{if(cur.has(a))return;al.set(a,al.has(a)&&al.get(a)!==o.name?null:o.name)}));let n=0;state.entries.forEach(e=>{const t=al.get(e.order);if(t){e.order=t;e.updated=Date.now();n++}});if(n){logEv('Zlecenie: ujednolicono nazwę we wpisach',n+' wpisów (zmiana nazwy w Etapie 1)');save()}}
 async function refreshX(){if(xBusy)return;xBusy=true;setX('pobieranie…');const er=[],[a,b]=await Promise.allSettled([fj(ROLL_URL),fj(PACK_URL)]);
  try{if(a.status!=='fulfilled')throw 0;X.roll=normRoll(a.value);X.rollAt=Date.now()}catch(e){er.push('Rolsiarka')}
+ try{healNames()}catch(_){}
  try{if(b.status!=='fulfilled')throw 0;X.pack=normPack(b.value);X.packAt=Date.now()}catch(e){er.push('Pakowanie')}
  X.err=er;try{localStorage.setItem(LSX,JSON.stringify(X))}catch(_){}
  setX(er.length?'brak połączenia ('+er.join(', ')+')'+(X.pack?' – dane z '+hhmm(X.packAt):' – brak danych'):'aktualne '+hhmm(Date.now()));xBusy=false;render()}
@@ -207,10 +210,10 @@ function wipModel(){const R=X.roll?.entries||[],P=X.pack?.entries||[],ro=new Map
  R.forEach(r=>{if(r.produced>0)O(r.order).roll+=r.produced});
  P.forEach(p=>{const o=O(ro.get(p.src_uid)?.order||p.order||'?');o.packed+=p.packed;o.packWaste+=p.waste});
  state.entries.forEach(e=>{const o=O(e.order);o.wCov+=+e.waste_covers||0;o.wCar+=+e.waste_cartons||0;o.wFil+=+e.waste_filters||0;if(e.wip){o.glued+=+e.produced||0;o.rejected+=+e.rolls_rejected||0}else o.legacy++});
- (X.roll?.orders||[]).forEach(q=>{O(q.name).target=q.target});state.orders.forEach(q=>{if(ord[q.name]&&q.target)ord[q.name].target=q.target});
+ ords().forEach(q=>{O(q.name).target=+q.target||0});
  Object.values(ord).forEach(o=>{const l=o.roll-o.packed-o.packWaste;o.wip1=Math.max(l,0);o.over=Math.max(-l,0);o.wip2=o.packed-o.glued-o.rejected;o.loss=o.packWaste+o.rejected});
  return{ord,ro,R,P}}
-function fillOrderSel(){const W=wipModel(),cur=$('order').value,names=[...new Set([...Object.values(W.ord).filter(o=>o.wip2>0).map(o=>o.name),...state.orders.filter(x=>!x.closed).map(x=>x.name)])].filter(n=>!orderByName(n)?.closed).sort((a,b)=>((W.ord[b]?.wip2>0)-(W.ord[a]?.wip2>0))||a.localeCompare(b));
+function fillOrderSel(){const W=wipModel(),cur=$('order').value,names=[...new Set([...Object.values(W.ord).filter(o=>o.wip2>0).map(o=>o.name),...ords().filter(x=>!x.closed).map(x=>x.name)])].filter(n=>!orderByName(n)?.closed).sort((a,b)=>((W.ord[b]?.wip2>0)-(W.ord[a]?.wip2>0))||a.localeCompare(b));
  $('order').innerHTML=names.length?names.map(n=>`<option value="${esc(n)}">${esc(n)} · WIP 2: ${Math.max(W.ord[n]?.wip2||0,0)} szt.</option>`).join(''):'<option value="">— brak zleceń —</option>';$('order').value=(!applyDef&&names.includes(cur))?cur:(names[0]||'')}
 function renderWipInfo(){const W=wipModel(),o=W.ord[$('order').value],b=$('wipInfo');
  if(!X.pack){b.innerHTML='<p class="bad">⚠ Brak danych z Pakowania (Etap 2) – sprawdź połączenie i kliknij „Odśwież z chmury”. Bez nich nie można zaksięgować wykonanych sztuk.</p>';return}
@@ -230,7 +233,7 @@ function vEntry(){const E=[],W=[],t=today(),d=$('day').value||t,name=$('order').
    if(state.entries.some(x=>x.order===o.name&&x.date===d&&x.shift===$('shift').value&&empList(x).join()===getEmps().join()&&+x.produced===n('produced')))W.push('Istnieje już podobny wpis (ta sama data, zlecenie, zmiana, osoba i ilość) – czy to nie duplikat?')}}
  return{E,W}}
 async function addEntry(){if(addBusy)return;addBusy=true;try{await refreshX();const{E,W}=vEntry();$('entryErr').innerHTML=E.map(x=>'✖ '+esc(x)).join('<br>');if(E.length)return;if(W.length&&!confirm('Uwaga:\n• '+W.join('\n• ')+'\n\nZapisać mimo to?'))return;
- const name=$('order').value;if(!orderByName(name)){state.orders.push({name,target:0,closed:false,updated:Date.now()});state.deletedOrders=state.deletedOrders.filter(n=>n!==name);logEv('Zlecenie: dodano (ze spakowanych w Etapie 2)',name)}
+ const name=$('order').value;
  state.entries.push({uid:newUid(),created:Date.now(),updated:Date.now(),date:$('day').value||today(),order:name,employee:getEmps()[0],employees:getEmps(),shift:$('shift').value,people:+$('people').value,produced:+$('produced').value,rolls_rejected:+$('wRoll').value,waste_covers:+$('wCov').value,waste_cartons:+$('wCar').value,waste_filters:+$('wFil').value,wip:true,notes:$('notes').value,by:me().name});
  logEv('Wpis: dodano',eDesc(state.entries.at(-1)));save();['produced','wRoll','wCov','wCar','wFil'].forEach(k=>$(k).value=0);$('notes').value='';render()}finally{addBusy=false}}
 function edit(i){const x=state.entries[i];editIndex=i;const L=empList(x);$('eEmployee').innerHTML=empOpts(L[0],L);
@@ -249,9 +252,9 @@ function saveEdit(){if(editIndex===null)return;const n=k=>+$(k).value,d=$('eDate
 
 /* ===== Przepływ zleceń (Etap 1 → 2 → 3) – podgląd w zakładce Zlecenia ===== */
 let flowNames=[];
-function renderFlow(){const W=wipModel(),L=Object.values(W.ord).filter(o=>o.roll||o.packed||o.glued||o.target&&W.ro.size).sort((a,b)=>(b.wip2>0)-(a.wip2>0)||a.name.localeCompare(b.name)),ad=can('order.manage');flowNames=L.map(o=>o.name);
+function renderFlow(){const W=wipModel(),L=Object.values(W.ord).filter(o=>o.roll||o.packed||o.glued||o.target&&W.ro.size).sort((a,b)=>(b.wip2>0)-(a.wip2>0)||a.name.localeCompare(b.name)),ad=false;flowNames=L.map(o=>o.name);
  $('flowSrc').innerHTML=`Rolsiarka: ${X.roll?hhmm(X.rollAt):'<span class="bad">brak danych</span>'} · Pakowanie: ${X.pack?hhmm(X.packAt):'<span class="bad">brak danych</span>'}${X.err.length?' · <span class="bad">⚠ brak połączenia: '+X.err.join(', ')+'</span>':''}`;
- $('flowList').innerHTML=L.length?'<table><tr><th>Zlecenie</th><th>Cel</th><th>① Rolsiarka wykonano</th><th>② Spakowano</th><th>⏳ WIP 1</th><th>③ Klejenie wykonano</th><th>⏳ Dostępne do klejenia (WIP 2)</th><th>Postęp klejenia</th><th>Na liście</th>'+(ad?'<th></th>':'')+'</tr>'+L.map((o,i)=>{const base=o.target||o.roll,pc=base?Math.min(100,o.glued/base*100):0,on=!!orderByName(o.name);return`<tr><td><b>${esc(o.name)}</b></td><td>${o.target||'—'}</td><td>${o.roll}</td><td>${o.packed}</td><td>${o.wip1}</td><td>${o.glued}</td><td class="${o.wip2<0?'bad':''}"><b>${o.wip2}</b></td><td style="min-width:120px"><div class="progress"><i style="width:${pc}%"></i></div>${o.glued} / ${base||'—'}</td><td>${on?'tak':'nie'}</td>${ad?`<td>${on?'':`<button onclick="addFlowOrder(${i})">➕ Dodaj do listy</button>`}</td>`:''}</tr>`}).join('')+'</table>':'<p class="hint">Brak zleceń z Etapów 1–2 (lub brak danych – kliknij „Odśwież z chmury”).</p>'}
+ $('flowList').innerHTML=L.length?'<table><tr><th>Zlecenie</th><th>Cel</th><th>① Rolsiarka wykonano</th><th>② Spakowano</th><th>⏳ WIP 1</th><th>③ Klejenie wykonano</th><th>⏳ Dostępne do klejenia (WIP 2)</th><th>Postęp klejenia</th><th>Na liście Etapu 1</th>'+(ad?'<th></th>':'')+'</tr>'+L.map((o,i)=>{const base=o.target||o.roll,pc=base?Math.min(100,o.glued/base*100):0,on=!!orderByName(o.name);return`<tr><td><b>${esc(o.name)}</b></td><td>${o.target||'—'}</td><td>${o.roll}</td><td>${o.packed}</td><td>${o.wip1}</td><td>${o.glued}</td><td class="${o.wip2<0?'bad':''}"><b>${o.wip2}</b></td><td style="min-width:120px"><div class="progress"><i style="width:${pc}%"></i></div>${o.glued} / ${base||'—'}</td><td>${on?'tak':'nie'}</td>${ad?`<td>${on?'':`<button onclick="addFlowOrder(${i})">➕ Dodaj do listy</button>`}</td>`:''}</tr>`}).join('')+'</table>':'<p class="hint">Brak zleceń z Etapów 1–2 (lub brak danych – kliknij „Odśwież z chmury”).</p>'}
 function addFlowOrder(i){const name=flowNames[i],o=wipModel().ord[name];if(!name||orderByName(name))return;state.orders.push({name,target:o?o.target||0:0,closed:false,updated:Date.now()});state.deletedOrders=state.deletedOrders.filter(n=>n!==name);logEv('Zlecenie: dodano (z Etapu 1/2)',name);save();render()}
 
 /* ===== Bilans zleceń: Rolsiarka → Pakowanie → Klejenie ===== */
@@ -423,7 +426,7 @@ function buildReport(orders,opt){
  pages.push(cmds);const n=pages.length,foot=fit(c.footer||'',7,false,CW-140);
  pages.forEach((p,i)=>{cmds=p;hline(PM,PW-PM,PH-36,PDFC.line,0.6);text(PM,PH-24,foot,7,false,PDFC.grey);text(PW-PM,PH-24,'v'+APP_VERSION+'  ·  Strona '+(i+1)+' / '+n,7,false,PDFC.grey,'r')});
  return pages.map(p=>p.join('\n'))}
-function exportSel(){const v=$('reportOrder').value,orders=v==='__ALL__'||!v?state.orders.slice():state.orders.filter(o=>o.name===v),from=$('rFrom').value,to=$('rTo').value;
+function exportSel(){const v=$('reportOrder').value,orders=v==='__ALL__'||!v?ords().slice():ords().filter(o=>o.name===v),from=$('rFrom').value,to=$('rTo').value;
  if(!orders.length)return alert('Brak zleceń do eksportu.'),null;if(!from||!to)return alert('Podaj zakres dat (Od / Do).'),null;if(from>to)return alert('Data „Od” jest późniejsza niż „Do”.'),null;
  const names=new Set(orders.map(o=>o.name)),rows=state.entries.filter(x=>names.has(x.order)&&inR(x,{from,to})).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(+a.created||0)-(+b.created||0)).map(x=>({date:x.date,order:x.order,employee:empList(x).join(', '),emps:empList(x),shift:+x.shift||0,people:+x.people||0,produced:+x.produced||0,wc:+x.waste_covers||0,wk:+x.waste_cartons||0,wf:+x.waste_filters||0,notes:x.notes||'',by:x.by||'',week:isoWeekKey(x.date),month:monthKey(x.date),quarter:quarterKey(x.date)}));
  if(!rows.length)return alert('Brak wpisów produkcyjnych w wybranym zakresie dat.'),null;return{orders,from,to,rows}}
@@ -441,7 +444,7 @@ function xmlText(sel){const{rows,from,to}=sel,t=(n,v)=>`<${n}>${xe(v)}</${n}>`,a
  return o+' </Podsumowania>\n</RaportKlejenia>\n'}
 function exportFile(fmt){const sel=exportSel();if(!sel)return;logEv('Eksport',fmt.toUpperCase()+' '+sel.from+' – '+sel.to);save();const base='raport_klejenie_'+sel.from+'_'+sel.to;let blob;
  if(fmt==='csv')blob=new Blob(['\ufeff'+csvText(sel)],{type:'text/csv;charset=utf-8'});else if(fmt==='xml')blob=new Blob([xmlText(sel)],{type:'application/xml'});else{const sh=buildSheets(sel);blob=fmt==='xlsx'?xlsxBlob(sh):odsBlob(sh)}saveBlob(blob,base+'.'+fmt)}
-function generateReport(){const sel=$('reportOrder').value,orders=sel==='__ALL__'||!sel?state.orders.slice():state.orders.filter(o=>o.name===sel);
+function generateReport(){const sel=$('reportOrder').value,orders=sel==='__ALL__'||!sel?ords().slice():ords().filter(o=>o.name===sel);
  if(!orders.length)return alert('Brak zleceń do raportu. Najpierw dodaj zlecenie.');
  const from=$('rFrom').value,to=$('rTo').value,layout=$('rLayout').value,names=new Set(orders.map(o=>o.name));
  if(!from||!to)return alert('Podaj zakres dat raportu (Od / Do).');if(from>to)return alert('Data „Od” jest późniejsza niż „Do”.');
@@ -454,8 +457,8 @@ function generateReport(){const sel=$('reportOrder').value,orders=sel==='__ALL__
 const shifts=es=>new Set(es.map(x=>x.date+'|'+x.shift)).size;
 function stats(es){const p=sum(es,'produced'),sh=shifts(es);return[['Dni',new Set(es.map(x=>x.date)).size],['Zmiany',sh],['Wpisy',es.length],['Wykonano',p],['Odpad okładek [szt.]',sum(es,'waste_covers')],['Odpad kartonik [szt.]',sum(es,'waste_cartons')],['Odpad filtry [szt.]',sum(es,'waste_filters')],['Średnio / zmianę',sh?(p/sh).toFixed(1):0],['Osoby',new Set(es.flatMap(empList)).size]]}
 const tiles=a=>'<div class="grid">'+a.map(z=>`<div class="card metric">${z[0]}<b>${z[1]}</b></div>`).join('')+'</div>';
-function renderSummary(){{const rs=$('reportOrder').value;$('reportOrder').innerHTML='<option value="__ALL__">Wszystkie zlecenia (raport zbiorczy)</option>'+state.orders.map(x=>`<option value="${esc(x.name)}" ${x.name===rs?'selected':''}>${esc(x.name)}</option>`).join('');if(!$('rFrom').value)applyPreset()}const f=$('sF').value,t=$('sT').value,es=state.entries.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t));$('stats').innerHTML=tiles(stats(es));
- $('progress').innerHTML=state.orders.map(o=>{const all=sum(state.entries.filter(x=>x.order===o.name),'produced'),pc=o.target?Math.min(100,all/o.target*100):0;return`<div class="panel"><h4>${esc(o.name)}${o.closed?' (zamknięte)':''}</h4>${o.target?`<div class="progress"><i style="width:${pc}%"></i></div><p>${all} / ${o.target} szt. · pozostało ${Math.max(o.target-all,0)} szt.</p><p><b>📅 Prognoza zakończenia:</b> ${esc(fcT(o))}</p>`:''}${tiles(stats(es.filter(x=>x.order===o.name)))}</div>`}).join('')||'<p class="hint">Brak zleceń.</p>'}
+function renderSummary(){{const rs=$('reportOrder').value;$('reportOrder').innerHTML='<option value="__ALL__">Wszystkie zlecenia (raport zbiorczy)</option>'+ords().map(x=>`<option value="${esc(x.name)}" ${x.name===rs?'selected':''}>${esc(x.name)}</option>`).join('');if(!$('rFrom').value)applyPreset()}const f=$('sF').value,t=$('sT').value,es=state.entries.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t));$('stats').innerHTML=tiles(stats(es));
+ $('progress').innerHTML=ords().map(o=>{const all=sum(state.entries.filter(x=>x.order===o.name),'produced'),pc=o.target?Math.min(100,all/o.target*100):0;return`<div class="panel"><h4>${esc(o.name)}${o.closed?' (zamknięte)':''}</h4>${o.target?`<div class="progress"><i style="width:${pc}%"></i></div><p>${all} / ${o.target} szt. · pozostało ${Math.max(o.target-all,0)} szt.</p><p><b>📅 Prognoza zakończenia:</b> ${esc(fcT(o))}</p>`:''}${tiles(stats(es.filter(x=>x.order===o.name)))}</div>`}).join('')||'<p class="hint">Brak zleceń.</p>'}
 const fill=(id,v)=>{const c=$(id).value;$(id).innerHTML='<option value="">Wszystkie</option>'+[...new Set(v.filter(Boolean))].sort().map(x=>`<option ${x===c?'selected':''}>${esc(x)}</option>`).join('')};
 function clrF(){['fQ','fO','fE','fF','fT'].forEach(i=>$(i).value='');fPage=100;renderHist()}
 function renderHist(){const q=$('fQ').value.toLowerCase().trim(),F=id=>$(id).value,ed=can('entry.edit'),dl=can('entry.delete'),
@@ -470,10 +473,10 @@ function render(){if(!gate())return;const u=me(),c=state.cfg;
  Object.entries(TABS).forEach(([t,p])=>$('tb_'+t).style.display=can(p)?'':'none');
  const vis=[...document.querySelectorAll('section')].find(s=>s.classList.contains('show'));
  if(first||!vis||!can(TABS[vis.id])){first=0;const t=Object.keys(TABS).find(t=>can(TABS[t]));return tab(t,$('tb_'+t))}
- const sel=(id,arr,d)=>{const cur=$(id).value;$(id).innerHTML=arr.map(x=>`<option>${esc(x)}</option>`).join('');$(id).value=(!applyDef&&arr.map(String).includes(cur))?cur:String(d??'')},on=state.orders.filter(x=>!x.closed).map(x=>x.name);
+ const sel=(id,arr,d)=>{const cur=$(id).value;$(id).innerHTML=arr.map(x=>`<option>${esc(x)}</option>`).join('');$(id).value=(!applyDef&&arr.map(String).includes(cur))?cur:String(d??'')},on=ords().filter(x=>!x.closed).map(x=>x.name);
  fillOrderSel();sel('employee',c.employees,c.employees[0]);if(applyDef){$('shift').value=c.shift;$('people').value=c.people}empFields();$('day').value=$('day').value||today();
  $('cfgEmployees').value=c.employees.join(', ');$('cfgShift').value=c.shift;$('cfgPeople').value=c.people;$('cfgIdle').value=c.idleMin;$('cfgWork').value=c.workDays;$('cfgFcWin').value=c.fcWin;$('cfgCompany').value=c.company||'';$('cfgFooter').value=c.footer||'';$('cfgPdfHistory').value=c.pdfHistory||'TAK';applyDef=false;
- $('orderList').innerHTML='<table><tr><th>Zlecenie</th><th>Docelowo</th><th>Wykonano</th><th>Status</th><th>Akcja</th></tr>'+state.orders.map((x,i)=>`<tr><td>${esc(x.name)}</td><td>${x.target||'—'}</td><td>${sum(state.entries.filter(e=>e.order===x.name),'produced')}</td><td>${x.closed?'zamknięte':'otwarte'}</td><td><button onclick="editOrder(${i})">Edytuj</button><button class="ok" onclick="closeOrder(${i})">${x.closed?'Otwórz':'Zamknij'}</button><button class="danger" onclick="deleteOrder(${i})">Usuń</button></td></tr>`).join('')+'</table>';
+ $('orderList').innerHTML='<table><tr><th>Zlecenie</th><th>Docelowo</th><th>Wykonano</th><th>Status</th></tr>'+ords().map(x=>`<tr><td>${esc(x.name)}</td><td>${x.target||'—'}</td><td>${sum(state.entries.filter(e=>e.order===x.name),'produced')}</td><td>${x.closed?'zamknięte':'otwarte'}</td></tr>`).join('')+'</table>';
  fill('fO',state.entries.map(x=>x.order));fill('fE',state.entries.flatMap(empList));renderHist();renderSummary();renderWipInfo();renderFlow();if(can('summary'))renderBilans();
  if(can('log')){fill('lU',state.log.map(l=>l.user));fill('lA',state.log.map(l=>l.act));renderLog()}
  if(can('config'))$('usersBox').innerHTML=usersHtml();idleReset()}
