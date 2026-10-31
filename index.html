@@ -469,22 +469,22 @@ function buildOrderReport(name){
       hline(PM,PW-PM,Y+h,PDFC.line,0.4);Y+=h});
     Y+=10};
   const span=a=>{const d=a.map(x=>x.date).filter(Boolean).sort();return d.length?fdate(d[0])+' – '+fdate(d[d.length-1]):'—'},days=a=>String(new Set(a.map(x=>x.date).filter(Boolean)).size),
-    allD=[...R,...P,...G].map(x=>x.date).filter(Boolean).sort(),T=(l,v)=>[{t:l,b:true},{t:String(v),b:true}];
+    gAll=sum(G,'produced'),allD=[...R,...P,...G].map(x=>x.date).filter(Boolean).sort(),T=(l,v)=>[{t:l,b:true},{t:String(v),b:true}];
   rect(0,0,PW,80,PDFC.navy);text(PM,26,fit((c.company||'Klejenie – statystyki produkcji').toUpperCase(),8,true,CW-80),8,true,PDFC.soft);text(PW-PM,26,'v'+APP_VERSION,8,true,PDFC.soft,'r');
   let tsz=19;while(tw(title,tsz,true)>CW&&tsz>11)tsz-=1;text(PM,54,title,tsz,true,PDFC.white);text(PM,71,'Rolsiarka – Pakowanie – Klejenie  ·  bilans zlecenia',8.5,false,PDFC.soft);
   Y=94;rect(PM,Y,CW,38,PDFC.pale);
   [['Wygenerowano',new Date().toLocaleString('pl-PL',{dateStyle:'short',timeStyle:'short'})],['Status',ord.closed?'zamknięte':'otwarte'],['Ilość docelowa',tgt?tgt+' szt.':'brak'],['Okres produkcji',allD.length?fdate(allD[0])+' – '+fdate(allD[allD.length-1]):'—']].forEach((m,k)=>{const x=PM+k*CW/4;text(x+8,Y+14,m[0],7,true,PDFC.grey);text(x+8,Y+29,fit(m[1],10,true,CW/4-12),10,true,PDFC.navy)});
   Y+=38+8;text(PM,Y+8,'Dane: Rolsiarka z '+(X.rollAt?hhmm(X.rollAt):'—')+'  ·  Pakowanie z '+(X.packAt?hhmm(X.packAt):'—')+(X.err.length?'  ·  UWAGA: brak połączenia z: '+X.err.join(', ')+' (dane z pamięci)':''),7.5,false,X.err.length?PDFC.red:PDFC.grey);Y+=22;
   heading('Bilans zlecenia');
-  tiles([['Rolsiarka – wykonano',o.roll||0],['Spakowano',o.packed||0],['Klejenie – wykonano',o.glued||0],['Realizacja celu',tgt?f1((o.glued||0)/tgt*100)+'%':'—'],['WIP 1 – czeka na pakowanie',o.wip1||0],['WIP 2 – czeka na klejenie',Math.max(o.wip2||0,0),(o.wip2||0)<0],['Straty rolek (braki pak. + odrz.)',o.loss||0],['Wydajność końcowa',o.roll?f1((o.glued||0)/o.roll*100)+'%':'—']]);
-  if(tgt){const pc=Math.min(100,(o.glued||0)/tgt*100);ensure(40);rect(PM,Y,CW,10,PDFC.track);if(pc>0)rect(PM,Y,CW*pc/100,10,PDFC.green);Y+=10;text(PM,Y+12,'Klejenie: '+(o.glued||0)+' / '+tgt+' szt. ('+f1(pc)+'%)  ·  pozostało '+Math.max(tgt-(o.glued||0),0)+' szt.',8,false,PDFC.grey);Y+=24}
+  tiles([['Rolsiarka – wykonano',o.roll||0],['Spakowano',o.packed||0],['Klejenie – wykonano (wszystkie wpisy)',gAll],['Realizacja celu',tgt?f1(gAll/tgt*100)+'%':'—'],['WIP 1 – czeka na pakowanie',o.wip1||0],['WIP 2 – czeka na klejenie',Math.max(o.wip2||0,0),(o.wip2||0)<0],['Straty rolek (braki pak. + odrz.)',o.loss||0],['Wydajność końcowa',o.roll?f1((o.glued||0)/o.roll*100)+'%':'—']]);
+  if(tgt){const pc=Math.min(100,gAll/tgt*100);ensure(40);rect(PM,Y,CW,10,PDFC.track);if(pc>0)rect(PM,Y,CW*pc/100,10,PDFC.green);Y+=10;text(PM,Y+12,'Klejenie: '+gAll+' / '+tgt+' szt. ('+f1(pc)+'%)  ·  pozostało '+Math.max(tgt-gAll,0)+' szt.',8,false,PDFC.grey);Y+=24}
   const warns=[...(br?br.warn:[]),...(o.legacy?['Wpisy Klejenia sprzed wprowadzenia WIP nie wchodzą do bilansu (liczba wpisów: '+o.legacy+', razem '+sum(G.filter(e=>!e.wip),'produced')+' szt.)']:[])];
   if(warns.length){heading('Do wyjaśnienia');warns.forEach(w=>wrap(w,8.5,false,CW).forEach(l=>{ensure(14);text(PM,Y+9,l,8.5,false,PDFC.red);Y+=12}));Y+=6}
   heading('Przebieg po etapach');
   table([{h:'Etap',w:'*'},{h:'Okres',w:110},{h:'Dni',w:34,a:'r'},{h:'Wpisy',w:40,a:'r'},{h:'Wykonano [szt.]',w:78,a:'r'},{h:'Braki / odpad [szt.]',w:96,a:'r'}],[
     ['Etap 1 – Rolsiarka',span(R),days(R),String(R.length),String(o.roll||0),String(sum(R,'waste'))],
     ['Etap 2 – Pakowanie',span(P),days(P),String(P.length),String(o.packed||0),String(o.packWaste||0)],
-    ['Etap 3 – Klejenie',span(G),days(G),String(G.length),String(o.glued||0),'okł. '+(o.wCov||0)+' · kart. '+(o.wCar||0)+' · filtry '+(o.wFil||0)+' · odrz. rolki '+(o.rejected||0)]]);
+    ['Etap 3 – Klejenie',span(G),days(G),String(G.length),String(gAll),'okł. '+(o.wCov||0)+' · kart. '+(o.wCar||0)+' · filtry '+(o.wFil||0)+' · odrz. rolki '+(o.rejected||0)]]);
   if(c.pdfHistory!=='NIE'){
     ensure(100);heading('Etap 1 – Rolsiarka');
     if(R.length)table([{h:'Data',w:56},{h:'Maszyna',w:'*'},{h:'Bobina',w:60},{h:'Pracownik',w:100},{h:'Wykonano',w:56,a:'r'},{h:'Odpad',w:46,a:'r'}],[...R.map(r=>[fdate(r.date),r.machine||'—',String(r.bobbin||'—'),r.employee||'—',String(r.produced),String(r.waste||0)]),['','','',T('Razem','')[0],...[String(o.roll||0),String(sum(R,'waste'))].map(v=>({t:v,b:true}))]]);else{text(PM,Y+8,'Brak wpisów.',8,false,PDFC.grey);Y+=18}
