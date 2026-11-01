@@ -41,7 +41,7 @@ label.file input{display:none}
 </style></head><body>
 <header><span id="appTitle"></span><span class="hright"><span id="sync" class="sync">Status: ...</span><span id="xSt" class="sync">WIP: ...</span><button class="hbtn" onclick="pull(true);refreshX()">🔄 Odśwież z chmury</button><span id="userBar"></span></span></header>
 <main class="wrap"><div class="tabs">
-<button id="tb_orders" onclick="tab('orders',this)">Zlecenia</button><button id="tb_entry" onclick="tab('entry',this)">Wpisy produkcyjne</button><button id="tb_summary" onclick="tab('summary',this)">Podsumowanie</button><button id="tb_bilans" onclick="tab('bilans',this)">Bilans zleceń</button><button id="tb_config" onclick="tab('config',this)">Konfiguracja</button><button id="tb_data" onclick="tab('data',this)">Import / eksport</button><button id="tb_log" onclick="tab('log',this)">Log</button></div>
+<button id="tb_orders" onclick="tab('orders',this)">Zlecenia</button><button id="tb_entry" onclick="tab('entry',this)">Wpisy produkcyjne</button><button id="tb_summary" onclick="tab('summary',this)">Podsumowanie</button><button id="tb_bilans" onclick="tab('bilans',this)">Bilans zleceń</button><button id="tb_config" onclick="tab('config',this)">Konfiguracja</button><button id="tb_data" onclick="tab('data',this)">Import / eksport</button><button id="tb_corr" onclick="tab('corr',this)">Korekty</button><button id="tb_log" onclick="tab('log',this)">Log</button></div>
 
 <section id="orders" class="show"><div class="panel"><h3>Wspólna lista zleceń</h3><p class="hint">Zlecenia zakłada się, zmienia i zamyka w Etapie 1. Ta lista jest tylko do odczytu i odświeża się razem z danymi z Etapu 1.</p></div>
 <div class="panel"><h3>Przepływ zleceń: Rolsiarka → Pakowanie → Klejenie</h3><p id="flowSrc" class="hint"></p><div id="flowList" class="xs"></div><p class="hint">Zlecenia założone w Etapie 1 lub spakowane w Etapie 2 widać tu od razu, razem z ilością dostępną do klejenia (WIP 2). Lista zleceń jest wspólna dla wszystkich etapów: zlecenia zakłada się i zamyka w Etapie 1.</p></div>
@@ -77,6 +77,7 @@ label.file input{display:none}
 
 <section id="data"><div class="panel"><h3>Przenoszenie danych</h3><button onclick="pull(true)">🔄 Odśwież z chmury</button> <button onclick="download()">⬇ Eksportuj JSON</button> <label class="file">⬆ Importuj JSON<input type="file" accept="application/json" onchange="upload(this)"></label><p class="hint">Dane synchronizują się z chmurą (Supabase, tabela klejenia) po każdej zmianie, a kopia lokalna działa awaryjnie, gdy nie ma sieci. Import JSON zastępuje dane lokalne i w chmurze.</p><p id="last" class="hint"></p></div></section>
 
+<section id="corr"></section>
 <section id="log"><div class="panel"><h3>Dziennik zdarzeń</h3><div class="grid"><label>Szukaj<input id="lQ" oninput="renderLog()"></label><label>Użytkownik<select id="lU" onchange="renderLog()"></select></label><label>Zdarzenie<select id="lA" onchange="renderLog()"></select></label><label>Od<input id="lF" type="date" onchange="renderLog()"></label><label>Do<input id="lT" type="date" onchange="renderLog()"></label></div><div id="logList" class="xs"></div><p class="hint">Log jest tylko do odczytu (ostatnie 3000 zdarzeń).</p></div></section>
 </main><div id="auth"></div>
 
@@ -86,13 +87,13 @@ label.file input{display:none}
 <label>Uwagi<textarea id="eNotes"></textarea></label><button class="ok" onclick="saveEdit()">💾 Zapisz zmiany</button> <button onclick="cancelEdit()">Anuluj</button></div></div>
 
 <script>
-const APP_VERSION='1.6.0',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
+const APP_VERSION='1.7.0',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
 const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'),today=()=>ymd(new Date());
 const fdate=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||'');return m?m[3]+'.'+m[2]+'.'+m[1]:(d||'—')};
 const def={employees:['Operator'],shift:'1',people:1,idleMin:30,workDays:'5',fcWin:7,company:'',footer:'',pdfHistory:'TAK'};
 let state=JSON.parse(localStorage.getItem(LS)||'{}');
-['orders','entries','deletedEntries','deletedOrders','users','log','deletedUsers'].forEach(k=>state[k]??=[]);
+['orders','entries','deletedEntries','deletedOrders','users','log','deletedUsers','corr'].forEach(k=>state[k]??=[]);
 state.deletedOrderTs??={};state.cfgUpdated??=0;state.lastModified??='—';state.cfg={...def,...(state.cfg||{})};
 const saveLocal=()=>localStorage.setItem(LS,JSON.stringify(state)),save=()=>{saveLocal();push();usersAfterSave()};
 const newUid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -139,14 +140,14 @@ async function push(force){if(busy){again=true;return}busy=true;setSync('Zapisyw
 async function pull(show){syncUsers();setSync('Pobieranie z chmury...');try{const r=await getCloud(),need=needPush(r),ch=mergeChanged(r);saveLocal();if(ch)render();if(need)await push();else setSync('Gotowy');if(show)alert('Pobrano najnowsze dane z chmury.')}catch(e){setSync('Praca lokalna (brak sieci)');if(show)alert('Nie udało się połączyć z chmurą.')}}
 function dl(text,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}
 function download(){logEv('Eksport JSON','pełna kopia danych');save();dl(JSON.stringify(pack(false),null,2),'klejenie.json','application/json')}
-function upload(el){const r=new FileReader;r.onload=async()=>{try{const u=unpack(JSON.parse(r.result));if(!confirm('Import zastąpi dane lokalne i w chmurze. Kontynuować?'))return;const old=[...state.entries],oldO=state.orders.map(o=>o.name);try{const c=await getCloud();old.push(...c.entries);oldO.push(...c.orders.map(o=>o.name))}catch(_){}
- const keep=new Set(u.entries.map(ensureUid)),keepO=new Set(u.orders.map(o=>o.name));state.orders=u.orders;state.entries=u.entries;state.cfg={...def,...u.cfg};state.cfgUpdated=Date.now();state.deletedEntries=[...new Set(old.map(ensureUid))].filter(x=>!keep.has(x));state.deletedOrders=[...new Set(oldO)].filter(n=>!keepO.has(n));logEv('Import danych','JSON: '+u.entries.length+' wpisów, '+u.orders.length+' zleceń');saveLocal();render();await push(true);alert('Zaimportowano dane.')}catch(e){alert('Błędny plik JSON: '+e.message)}};r.readAsText(el.files[0])}
+function upload(el){const r=new FileReader;r.onload=async()=>{try{const u=unpack(JSON.parse(r.result));if(!confirm('Import zastąpi dane lokalne i w chmurze. Kontynuować?'))return;const old=[...state.entries,...state.corr],oldO=state.orders.map(o=>o.name);try{const c=await getCloud();old.push(...c.entries,...(c.corr||[]));oldO.push(...c.orders.map(o=>o.name))}catch(_){}
+ const keep=new Set([...u.entries,...(u.corr||[])].map(ensureUid)),keepO=new Set(u.orders.map(o=>o.name));state.orders=u.orders;state.entries=u.entries;state.corr=u.corr||[];state.cfg={...def,...u.cfg};state.cfgUpdated=Date.now();state.deletedEntries=[...new Set(old.map(ensureUid))].filter(x=>!keep.has(x));state.deletedOrders=[...new Set(oldO)].filter(n=>!keepO.has(n));logEv('Import danych','JSON: '+u.entries.length+' wpisów, '+u.orders.length+' zleceń');saveLocal();render();await push(true);alert('Zaimportowano dane.')}catch(e){alert('Błędny plik JSON: '+e.message)}};r.readAsText(el.files[0])}
 
 /* ===== logowanie, role, log ===== */
 let synced=false,curView='',pinOpen=0,first=1,applyDef=true,fPage=100,editIndex=null,fails=JSON.parse(localStorage.mes_lock||'{}');
 const ROLES={admin:'Administrator',owner:'Właściciel',operator:'Operator'},
-PERMS={admin:'entry.add entry.edit entry.delete order.manage summary export config data log override'.split(' '),owner:'entry.add entry.edit entry.delete order.manage summary export override'.split(' '),operator:['entry.add']},
-TABS={orders:'order.manage',entry:'entry.add',summary:'summary',bilans:'summary',config:'config',data:'data',log:'log'};
+PERMS={admin:'entry.add entry.edit entry.delete order.manage summary export config data log override correct'.split(' '),owner:'entry.add entry.edit entry.delete order.manage summary export override correct'.split(' '),operator:['entry.add']},
+TABS={orders:'order.manage',entry:'entry.add',summary:'summary',bilans:'summary',config:'config',data:'data',corr:'correct',log:'log'};
 const me=()=>state.users.find(u=>u.id===(sess()||{}).id),can=p=>!!me()&&PERMS[me().role].includes(p),denied=()=>alert('Brak uprawnień do tej operacji.');
 const eDesc=x=>`${x.date} · ${x.order} · zm.${x.shift} · ${empList(x).join(', ')} · osób ${x.people} · wyk. ${x.produced} szt., odp. okł. ${x.waste_covers}, kart. ${x.waste_cartons}, filtry ${x.waste_filters}, odrz. rolki ${x.rolls_rejected||0}`;
 function logEv(act,d,uname){const u=me();state.log.push({id:newUid(),ts:Date.now(),user:uname||(u?u.name:'—'),role:u?u.role:'',act,d:d||''});if(state.log.length>3000)state.log.splice(0,state.log.length-3000)}
@@ -167,6 +168,60 @@ async function doLogin(){const pin0=$('lgP').value,uid0=$('lgU').value;await syn
  else{f.n++;if(f.n>=5){f.t=Date.now()+6e4;f.n=0}fails[u.id]=f;localStorage.mes_lock=JSON.stringify(fails);logEv('Błędne logowanie',u.name,u.name);saveLocal();$('authErr').textContent='Błędny PIN.'}}
 async function doPin(){const u=me(),n=$('pcN').value,e=await hp($('pcO').value,u.salt)!==u.hash?'Obecny PIN jest błędny.':weak(n)||(n!==$('pcN2').value?'PIN-y nie są identyczne.':'');if(e)return $('authErr').textContent=e;u.salt=newUid();u.hash=await hp(n,u.salt);u.must=false;u.updated=Date.now();logEv('Zmiana PIN-u');save();pinOpen=0;curView='';render()}
 function logout(auto){logEv(auto?'Wylogowanie (bezczynność)':'Wylogowanie');save();clearSess();pinOpen=0;curView='';render()}
+/* ===== KOREKTY STANU: osobny wpis z plusem lub minusem; zwykłych wpisów produkcyjnych nie zmienia ===== */
+state.corr=state.corr||[];
+(function(){
+ const o1=pack;pack=function(){const p=o1.apply(this,arguments);p.data.entries=[...state.entries,...state.corr];return p};
+ const o2=unpack;unpack=function(p){const u=o2(p),all=u.entries||[];u.entries=all.filter(e=>!(e&&e.kind==='corr'));u.corr=all.filter(e=>e&&e.kind==='corr');return u};
+ const o3=merge;merge=function(r){const de=new Set([...state.deletedEntries,...(r.deletedEntries||[])]),cm=new Map();[...state.corr,...(r.corr||[])].forEach(e=>{const x=cm.get(e.uid);if(!x||(+e.updated||0)>(+x.updated||0))cm.set(e.uid,e)});o3(r);state.corr=[...cm.values()].filter(e=>!de.has(e.uid)).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(+a.created||0)-(+b.created||0))};
+ const o4=mergeChanged;mergeChanged=function(r){const b=JSON.stringify(state.corr),ch=o4(r);return ch||b!==JSON.stringify(state.corr)};
+ const o5=needPush;needPush=function(r){if(o5(r))return true;const ru=new Set((r.corr||[]).map(e=>e.uid));return state.corr.some(e=>!ru.has(e.uid))};
+ const o6=render;render=function(){o6.apply(this,arguments);try{if(me()&&can('correct')&&$('corr').classList.contains('show'))corrRefresh()}catch(e){console.error(e)}};
+})();
+const corrFmt=n=>{n=Math.round(+n||0);return(n>0?'+':n<0?'−':'')+Math.abs(n).toLocaleString('pl-PL')};
+function corrBuild(){
+ if($('corrForm'))return;
+ $('corr').innerHTML=`<div class="panel" id="corrForm"><h3>Korekta stanu · ${esc(CORR.name)}</h3><p class="hint">${CORR.hint}</p><div class="grid"><label>Zlecenie<select id="cOrder" onchange="corrSel()"></select></label><label>Korygowana wartość<select id="cField" onchange="corrSel()"></select></label><label>Stan wg systemu [szt.]<input id="cSys" readonly></label><label>Stan faktyczny [szt.]<input id="cCnt" type="number" min="0" step="1" inputmode="numeric" oninput="corrCalc()"></label><label>Korekta (różnica)<input id="cDelta" readonly></label><label>Powód<select id="cReason"><option>Inwentaryzacja</option><option>Błąd zliczenia</option><option>Pomyłka we wpisie</option><option>Inne</option></select></label><label>Uwaga (opcjonalnie)<input id="cNote" maxlength="200"></label></div><p id="cWarn" class="hint"></p><button onclick="corrAdd()">Zapisz korektę</button></div><div class="panel"><h3>Historia korekt</h3><div id="corrList"></div></div>`}
+function corrCur(){const o=$('cOrder').value,f=CORR.fields.find(x=>x.k===$('cField').value);return{o,f,sys:o&&f?Math.round(+f.sys(o)||0):0}}
+function corrCalc(){const{o,f,sys}=corrCur(),c=$('cCnt').value,has=c!==''&&isFinite(+c),d=has?Math.round(+c)-sys:0,w=has&&d!==0&&CORR.warn?(CORR.warn(o,f,d)||''):'';$('cSys').value=o?String(sys):'';$('cDelta').value=has?corrFmt(d):'';$('cWarn').textContent=w?'⚠ '+w:'';$('cWarn').style.color=w?'#c0392b':'';$('cWarn').style.fontWeight=w?'700':''}
+function corrSel(){$('cCnt').value='';corrCalc()}
+function corrRefresh(){
+ corrBuild();
+ const names=CORR.names(),sel=$('cOrder'),cur=sel.value,fs=$('cField');
+ sel.innerHTML=names.length?names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join(''):'<option value="">— brak zleceń —</option>';
+ sel.value=names.includes(cur)?cur:(names[0]||'');
+ if(!fs.options.length)fs.innerHTML=CORR.fields.map(f=>`<option value="${f.k}">${esc(f.label)}</option>`).join('');
+ corrCalc();corrList()}
+function corrList(){
+ const L=[...state.corr].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(+b.created||0)-(+a.created||0));
+ $('corrList').innerHTML=L.length?'<div style="overflow-x:auto"><table><tr><th>Data</th><th>Zlecenie</th><th>Wartość</th><th>System → faktycznie</th><th>Korekta</th><th>Powód</th><th>Uwaga</th><th>Kto</th><th></th></tr>'+L.map(e=>{const f=CORR.fields.find(x=>x.k===e.corr_field);return`<tr><td>${esc(e.date||'')}</td><td>${esc(CORR.orderOf(e)||'')}</td><td>${esc(f?f.label:(e.corr_field||''))}</td><td>${esc(e.corr_sys)} → ${esc(e.corr_cnt)}</td><td><b>${corrFmt(e[e.corr_field])}</b></td><td>${esc(e.corr_reason||'')}</td><td>${esc(e.notes||'')}</td><td>${esc(e.by||'')}</td><td>${can('correct')?`<button class="danger" onclick="corrDel('${esc(e.uid)}')">Usuń</button>`:''}</td></tr>`}).join('')+'</table></div>':'<p class="hint">Brak korekt.</p>'}
+function corrAdd(){
+ if(!can('correct'))return denied();
+ const{o,f,sys}=corrCur(),c=$('cCnt').value;
+ if(!o||!f)return alert('Wybierz zlecenie i korygowaną wartość.');
+ if(c===''||!isFinite(+c)||+c<0)return alert('Wpisz stan faktyczny (liczba 0 lub większa).');
+ const cnt=Math.round(+c),d=cnt-sys;
+ if(d===0)return alert('Stan faktyczny jest zgodny z systemem – korekta niepotrzebna.');
+ const w=CORR.warn?CORR.warn(o,f,d):'';
+ if(!confirm(`Zapisać korektę?\n\n${o} · ${f.label}\nstan w systemie: ${sys}\nstan faktyczny: ${cnt}\nkorekta: ${corrFmt(d)}`+(w?`\n\n⚠ ${w}`:'')))return;
+ const now=Date.now(),e={uid:newUid(),created:now,updated:now,kind:'corr',date:today(),by:me().name,corr_field:f.k,corr_sys:sys,corr_cnt:cnt,corr_reason:$('cReason').value,notes:$('cNote').value.trim(),...CORR.entry(o,f,d)};
+ state.corr.push(e);
+ logEv('Korekta stanu',`${o} · ${f.label}: ${sys} → ${cnt} (${corrFmt(d)}) · ${e.corr_reason}${e.notes?' · '+e.notes:''}`);
+ $('cCnt').value='';$('cNote').value='';save();render()}
+function corrDel(uid){
+ if(!can('correct'))return denied();
+ const e=state.corr.find(x=>x.uid===uid);if(!e)return;
+ if(!confirm('Usunąć tę korektę? Stan zlecenia wróci do wartości sprzed korekty.'))return;
+ state.corr=state.corr.filter(x=>x.uid!==uid);state.deletedEntries.push(uid);
+ logEv('Korekta stanu: usunięto',`${CORR.orderOf(e)||''} · ${e.corr_field}: ${corrFmt(e[e.corr_field])} (z ${e.date||''}, ${e.by||''})`);
+ save();render()}
+var CORR={name:'Etap 3 · Klejenie',hint:'Księguje różnicę między liczbą wykonanych sztuk (lub odrzuconych rolek) wg systemu a faktyczną. Dodaje osobny wpis z plusem lub minusem, bez zmiany zwykłych wpisów. Korekta zmienia WIP 2 w Hali i w Pakowaniu.',
+ names:()=>{const W=wipModel();return[...new Set([...ords().map(o=>o.name),...Object.values(W.ord).filter(o=>o.name&&o.name!=='?'&&(o.packed||o.glued||o.rejected)).map(o=>o.name)])].sort((a,b)=>a.localeCompare(b,'pl'))},
+ fields:[{k:'produced',label:'Wykonane (klejenie) [szt.]',sys:n=>wipModel().ord[n]?.glued||0},{k:'rolls_rejected',label:'Odrzucone rolki [szt.]',sys:n=>wipModel().ord[n]?.rejected||0}],
+ orderOf:e=>e.order,
+ entry:(o,f,d)=>({order:o,wip:true,[f.k]:d}),
+ warn:(n,f,d)=>{const o=wipModel().ord[n];if(!o)return'';const g=o.glued+(f.k==='produced'?d:0),r=o.rejected+(f.k==='rolls_rejected'?d:0);return o.packed-g-r<0?'WIP 2 spadnie poniżej zera (do klejenia pobrano by więcej niż spakowano w Etapie 2)':''}};
+
 /* ===== wspólne logowanie: jedna lista użytkowników (funkcja users-sync) i jedna sesja dla Etapów 1–3 ===== */
 var USERS_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/users-sync',uVer=null,uBusy=false,uAt=0,uLast='';
 function sess(){try{const s=JSON.parse(localStorage.getItem('mes_session')||'null');return s&&s.id&&s.exp>Date.now()&&s.max>Date.now()?s:null}catch(e){return null}}
@@ -209,8 +264,8 @@ function delUser(id){const u=state.users.find(x=>x.id===id);if(u.id===me().id)re
 /* ===== zlecenia ===== */
 function addOrder(){const name=$('newOrder').value.trim(),target=+$('newTarget').value||0;if(!name||state.orders.some(x=>x.name===name))return alert('Podaj unikalną nazwę zlecenia.');if(!Number.isInteger(target)||target<0)return alert('Ilość docelowa musi być liczbą całkowitą ≥ 0.');state.orders.push({name,target,closed:false,updated:Date.now()});logEv('Zlecenie: dodano',name+(target?' ('+target+' szt.)':''));state.deletedOrders=state.deletedOrders.filter(n=>n!==name);$('newOrder').value=$('newTarget').value='';save();render()}
 function closeOrder(i){const o=state.orders[i];o.closed=!o.closed;o.updated=Date.now();logEv('Zlecenie: status',o.name+' → '+(o.closed?'zamknięte':'otwarte'));save();render()}
-function editOrder(i){const x=state.orders[i],v=prompt('Nazwa zlecenia|Ilość docelowa [szt.] (0 = brak)',`${x.name}|${x.target||0}`);if(v===null)return;const a=v.split('|'),name=a[0].trim(),target=+a[1]||0;if(!name||!Number.isInteger(target)||target<0)return alert('Podaj nazwę i poprawną ilość docelową.');if(name!==x.name&&state.orders.some(o=>o.name===name))return alert('Zlecenie o tej nazwie już istnieje.');const old=x.name;logEv('Zlecenie: edycja',x.name+' ('+(x.target||0)+') → '+name+' ('+target+')');x.name=name;x.target=target;x.updated=Date.now();if(old!==name){state.deletedOrders.push(old);state.deletedOrderTs[old]=Date.now()}state.entries.filter(e=>e.order===old).forEach(e=>{e.order=name;e.updated=Date.now()});save();render()}
-function deleteOrder(i){const o=state.orders[i];if(state.entries.some(x=>x.order===o.name))return alert('Najpierw usuń powiązane wpisy produkcyjne.');if(confirm('Usunąć puste zlecenie?')){logEv('Zlecenie: usunięto',o.name);state.deletedOrders.push(o.name);state.deletedOrderTs[o.name]=Date.now();state.orders.splice(i,1);save();render()}}
+function editOrder(i){const x=state.orders[i],v=prompt('Nazwa zlecenia|Ilość docelowa [szt.] (0 = brak)',`${x.name}|${x.target||0}`);if(v===null)return;const a=v.split('|'),name=a[0].trim(),target=+a[1]||0;if(!name||!Number.isInteger(target)||target<0)return alert('Podaj nazwę i poprawną ilość docelową.');if(name!==x.name&&state.orders.some(o=>o.name===name))return alert('Zlecenie o tej nazwie już istnieje.');const old=x.name;logEv('Zlecenie: edycja',x.name+' ('+(x.target||0)+') → '+name+' ('+target+')');x.name=name;x.target=target;x.updated=Date.now();if(old!==name){state.deletedOrders.push(old);state.deletedOrderTs[old]=Date.now()}state.entries.filter(e=>e.order===old).forEach(e=>{e.order=name;e.updated=Date.now()});state.corr.filter(e=>e.order===old).forEach(e=>{e.order=name;e.updated=Date.now()});save();render()}
+function deleteOrder(i){const o=state.orders[i];if(state.entries.some(x=>x.order===o.name)||state.corr.some(x=>x.order===o.name))return alert('Najpierw usuń powiązane wpisy produkcyjne i korekty.');if(confirm('Usunąć puste zlecenie?')){logEv('Zlecenie: usunięto',o.name);state.deletedOrders.push(o.name);state.deletedOrderTs[o.name]=Date.now();state.orders.splice(i,1);save();render()}}
 
 /* ===== pracownicy we wpisie (1 pole na każdą osobę) ===== */
 const MAXP=10,empList=x=>x.employees&&x.employees.length?x.employees:[x.employee];
@@ -225,9 +280,9 @@ let X=JSON.parse(localStorage.getItem(LSX)||'null')||{roll:null,pack:null,rollAt
 const hhmm=t=>{if(!t)return'—';const n=new Date(t),p=v=>String(v).padStart(2,'0');return p(n.getHours())+':'+p(n.getMinutes())};
 const setX=t=>{const e=$('xSt');if(e)e.textContent='WIP: '+t};
 async function fj(url){const c=new AbortController(),t=setTimeout(()=>c.abort(),6000);try{const r=await fetch(url+'?nocache='+Date.now(),{cache:'no-store',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(t)}}
-const normRoll=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||('h'+hash(JSON.stringify(e))),date:e.date||'',order:e.order||'',machine:e.machine||'',bobbin:e.bobbin_index||'',employee:e.employee||'',waste:+e.waste||0,produced:+e.produced||0})),orders:(d.orders||[]).map(o=>({name:o.name,target:+o.target||0,closed:!!o.closed,aliases:Array.isArray(o.aliases)?o.aliases:[]}))}};
+const normRoll=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||('h'+hash(JSON.stringify(e))),date:e.date||'',order:e.order||'',machine:e.machine||'',bobbin:e.bobbin_index||'',employee:e.employee||'',waste:+e.waste||0,produced:+e.produced||0,corr:e.kind==='corr'})),orders:(d.orders||[]).map(o=>({name:o.name,target:+o.target||0,closed:!!o.closed,aliases:Array.isArray(o.aliases)?o.aliases:[]}))}};
 const normPack=p=>{const d=p.data||p;return{entries:(d.entries||[]).map(e=>({uid:e.uid||'',date:e.date||'',order:e.src_order||'',src_uid:e.src_uid||'',code:e.src_code||'',packed:+e.packed||0,waste:+e.waste||0,emps:(e.employees&&e.employees.length?e.employees:[e.employee]).filter(Boolean)}))}};
-function healNames(){const os=X.roll&&X.roll.orders||[];if(!os.length)return;const cur=new Set(os.map(o=>o.name)),al=new Map();os.forEach(o=>(o.aliases||[]).forEach(a=>{if(cur.has(a))return;al.set(a,al.has(a)&&al.get(a)!==o.name?null:o.name)}));let n=0;state.entries.forEach(e=>{const t=al.get(e.order);if(t){e.order=t;e.updated=Date.now();n++}});if(n){logEv('Zlecenie: ujednolicono nazwę we wpisach',n+' wpisów (zmiana nazwy w Etapie 1)');save()}}
+function healNames(){const os=X.roll&&X.roll.orders||[];if(!os.length)return;const cur=new Set(os.map(o=>o.name)),al=new Map();os.forEach(o=>(o.aliases||[]).forEach(a=>{if(cur.has(a))return;al.set(a,al.has(a)&&al.get(a)!==o.name?null:o.name)}));let n=0;state.entries.forEach(e=>{const t=al.get(e.order);if(t){e.order=t;e.updated=Date.now();n++}});state.corr.forEach(e=>{const t=al.get(e.order);if(t){e.order=t;e.updated=Date.now();n++}});if(n){logEv('Zlecenie: ujednolicono nazwę we wpisach',n+' wpisów (zmiana nazwy w Etapie 1)');save()}}
 async function refreshX(){if(xBusy)return;xBusy=true;setX('pobieranie…');const er=[],[a,b]=await Promise.allSettled([fj(ROLL_URL),fj(PACK_URL)]);
  try{if(a.status!=='fulfilled')throw 0;X.roll=normRoll(a.value);X.rollAt=Date.now()}catch(e){er.push('Rolsiarka')}
  try{healNames()}catch(_){}
@@ -238,10 +293,10 @@ const code=uid=>'R-'+hash(String(uid)).toUpperCase().slice(-5).padStart(5,'0');
 /* Model: WIP1 = Rolsiarka − spakowane − braki pakowania; WIP2 = spakowane − pobrane do Klejenia (wykonano + odrzucone rolki).
    Do pobrań liczą się tylko wpisy Klejenia z flagą wip:true (utworzone w tej wersji); starsze są pomijane i zliczane jako „legacy”. */
 function wipModel(){const R=X.roll?.entries||[],P=X.pack?.entries||[],ro=new Map(R.map(r=>[r.uid,r])),ord={},O=n=>ord[n]??={name:n,target:0,roll:0,packed:0,packWaste:0,wip1:0,over:0,glued:0,rejected:0,wCov:0,wCar:0,wFil:0,legacy:0};
- R.forEach(r=>{if(r.produced>0)O(r.order).roll+=r.produced});
+ R.forEach(r=>{if(r.produced>0||r.corr)O(r.order).roll+=r.produced});
  P.forEach(p=>{const o=O(ro.get(p.src_uid)?.order||p.order||'?');o.packed+=p.packed;o.packWaste+=p.waste});
  state.entries.forEach(e=>{const o=O(e.order);o.wCov+=+e.waste_covers||0;o.wCar+=+e.waste_cartons||0;o.wFil+=+e.waste_filters||0;if(e.wip){o.glued+=+e.produced||0;o.rejected+=+e.rolls_rejected||0}else o.legacy++});
- ords().forEach(q=>{O(q.name).target=+q.target||0});
+ state.corr.forEach(e=>{const o=O(e.order);o.glued+=+e.produced||0;o.rejected+=+e.rolls_rejected||0});ords().forEach(q=>{O(q.name).target=+q.target||0});
  Object.values(ord).forEach(o=>{const l=o.roll-o.packed-o.packWaste;o.wip1=Math.max(l,0);o.over=Math.max(-l,0);o.wip2=o.packed-o.glued-o.rejected;o.loss=o.packWaste+o.rejected});
  return{ord,ro,R,P}}
 function fillOrderSel(){const W=wipModel(),cur=$('order').value,names=[...new Set([...Object.values(W.ord).filter(o=>o.wip2>0).map(o=>o.name),...ords().filter(x=>!x.closed).map(x=>x.name)])].filter(n=>!orderByName(n)?.closed).sort((a,b)=>((W.ord[b]?.wip2>0)-(W.ord[a]?.wip2>0))||a.localeCompare(b));
@@ -300,9 +355,9 @@ function renderBilans(){const all=bilRows(),f=$('bF').value,q=$('bQ').value.toLo
  const st={open:'W toku',closed:'✔ Domknięte',warn:'⚠ Do wyjaśnienia'};
  $('bilTable').innerHTML=L.length?'<table><tr><th>Zlecenie</th><th>Cel</th><th>① Rolsiarka wykonano</th><th>② Spakowano</th><th>Braki pakowania</th><th>⏳ WIP 1</th><th>③ Klejenie wykonano</th><th>Odrzucone rolki</th><th>⏳ WIP 2</th><th>Odpad okł. / kart. / filtry</th><th>Straty rolek</th><th>Strata %</th><th>Wydajność %</th><th>Status</th></tr>'+L.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.warn.concat(r.info?[r.info]:[]).map(w=>`<br><span class="${r.warn.includes(w)?'bad':'hint'}">${esc(w)}</span>`).join('')}</td><td>${r.target||'—'}</td><td>${r.roll}</td><td>${r.packed}</td><td>${r.packWaste}</td><td>${r.wip1}</td><td>${r.glued}</td><td>${r.rejected}</td><td class="${r.wip2<0?'bad':''}">${r.wip2}</td><td>${r.wCov} / ${r.wCar} / ${r.wFil}</td><td><b>${r.loss}</b></td><td>${f1(r.lossPct)}%</td><td>${f1(r.yieldPct)}%</td><td class="${r.status==='warn'?'bad':r.status==='closed'?'good':''}">${st[r.status]}</td></tr>`).join('')+'</table>':'<p class="hint">Brak zleceń spełniających kryteria (lub brak danych z Rolsiarki / Pakowania).</p>';
  const cur=$('bT').value;$('bT').innerHTML=all.map(r=>`<option ${r.name===cur?'selected':''}>${esc(r.name)}</option>`).join('');renderTrace()}
-function renderTrace(){const W=wipModel(),n=$('bT').value,rs=W.R.filter(r=>r.order===n&&r.produced>0).sort((a,b)=>(a.date||'').localeCompare(b.date||'')),ps=W.P.filter(p=>(W.ro.get(p.src_uid)?.order||p.order)===n).sort((a,b)=>(a.date||'').localeCompare(b.date||'')),ge=state.entries.filter(e=>e.order===n);
+function renderTrace(){const W=wipModel(),n=$('bT').value,rs=W.R.filter(r=>r.order===n&&(r.produced>0||r.corr)).sort((a,b)=>(a.date||'').localeCompare(b.date||'')),ps=W.P.filter(p=>(W.ro.get(p.src_uid)?.order||p.order)===n).sort((a,b)=>(a.date||'').localeCompare(b.date||'')),ge=state.entries.filter(e=>e.order===n);
  if(!n){$('bilTrace').innerHTML='';return}
- $('bilTrace').innerHTML=(rs.length?'<table><tr><th>Kod R1</th><th>Data (Rolsiarka)</th><th>Maszyna · bob.</th><th>Rolsiarka wykonano</th></tr>'+rs.map(r=>`<tr><td><b>${esc(code(r.uid))}</b></td><td>${fdate(r.date)}</td><td>${esc(r.machine)||'—'} · ${esc(r.bobbin)||'—'}</td><td>${r.produced}</td></tr>`).join('')+'</table>':'<p class="hint">Brak wpisów Rolsiarki dla tego zlecenia.</p>')+(ps.length?'<table><tr><th>Data pakowania</th><th>Pakowacz</th><th>Spakowano</th><th>Braki</th></tr>'+ps.map(p=>`<tr><td>${fdate(p.date)}</td><td>${esc(p.emps.join(', '))||'—'}</td><td>${p.packed}</td><td>${p.waste}</td></tr>`).join('')+'</table>':'<p class="hint">Brak wpisów Pakowania dla tego zlecenia.</p>')+`<p class="hint">Klejenie: ${ge.length} wpisów, wykonano ${sum(ge.filter(e=>e.wip),'produced')} szt., odrzucone rolki ${sum(ge.filter(e=>e.wip),'rolls_rejected')} szt.${ge.some(e=>!e.wip)?' (pominięto '+ge.filter(e=>!e.wip).length+' wpisów sprzed WIP).':''}</p>`}
+ $('bilTrace').innerHTML=(rs.length?'<table><tr><th>Kod R1</th><th>Data (Rolsiarka)</th><th>Maszyna · bob.</th><th>Rolsiarka wykonano</th></tr>'+rs.map(r=>`<tr><td><b>${r.corr?'KOREKTA':esc(code(r.uid))}</b></td><td>${fdate(r.date)}</td><td>${esc(r.machine)||'—'} · ${esc(r.bobbin)||'—'}</td><td>${r.produced}</td></tr>`).join('')+'</table>':'<p class="hint">Brak wpisów Rolsiarki dla tego zlecenia.</p>')+(ps.length?'<table><tr><th>Data pakowania</th><th>Pakowacz</th><th>Spakowano</th><th>Braki</th></tr>'+ps.map(p=>`<tr><td>${fdate(p.date)}</td><td>${esc(p.emps.join(', '))||'—'}</td><td>${p.packed}</td><td>${p.waste}</td></tr>`).join('')+'</table>':'<p class="hint">Brak wpisów Pakowania dla tego zlecenia.</p>')+`<p class="hint">Klejenie: ${ge.length} wpisów, wykonano ${sum(ge.filter(e=>e.wip),'produced')} szt., odrzucone rolki ${sum(ge.filter(e=>e.wip),'rolls_rejected')} szt.${ge.some(e=>!e.wip)?' (pominięto '+ge.filter(e=>!e.wip).length+' wpisów sprzed WIP).':''}</p>`}
 function exportBilans(){const L=bilRows(),q=v=>{v=String(v??'');return/[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};if(!L.length)return alert('Brak danych do eksportu.');
  const rows=[['Zlecenie','Cel','Rolsiarka wykonano','Spakowano','Braki pakowania','WIP 1','Klejenie wykonano','Odrzucone rolki','WIP 2','Odpad okładek','Odpad kartonik','Odpad filtry','Straty rolek','Strata %','Wydajność %','Status'],...L.map(r=>[r.name,r.target||'',r.roll,r.packed,r.packWaste,r.wip1,r.glued,r.rejected,r.wip2,r.wCov,r.wCar,r.wFil,r.loss,f1(r.lossPct),f1(r.yieldPct),{open:'W toku',closed:'Domknięte',warn:'Do wyjaśnienia'}[r.status]])];
  logEv('Eksport','CSV bilans zleceń');save();dl('\ufeff'+rows.map(r=>r.map(q).join(';')).join('\r\n')+'\r\n','bilans_zlecen_'+today()+'.csv','text/csv;charset=utf-8')}
