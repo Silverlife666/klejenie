@@ -76,7 +76,7 @@ label.file input{display:none}
 <p class="hint"><b>Jak ustawić PIN:</b> wpisz tymczasowy PIN (4–8 cyfr, nie 1234/0000) i przekaż go osobie – przy pierwszym logowaniu system poprosi o własny. Zapomniany PIN: „Reset PIN”. <b>Uprawnienia:</b> Administrator – wszystko (w tym Konfiguracja, Import/eksport, Log). Właściciel – wpisy i zlecenia (dodawanie, edycja, usuwanie), podsumowania i eksport. Operator – tylko dodawanie wpisów produkcyjnych.</p></div>
 <button onclick="saveConfig()">Zapisz konfigurację</button></section>
 
-<section id="data"><div class="panel"><h3>Przenoszenie danych</h3><button onclick="pull(true)">🔄 Odśwież z chmury</button> <button onclick="download()">⬇ Eksportuj JSON</button> <label class="file">⬆ Importuj JSON<input type="file" accept="application/json" onchange="upload(this)"></label><p class="hint">Dane synchronizują się z chmurą (Supabase, tabela klejenia) po każdej zmianie, a kopia lokalna działa awaryjnie, gdy nie ma sieci. Import JSON zastępuje dane lokalne i w chmurze.</p><p id="last" class="hint"></p></div></section>
+<section id="data"><div class="panel"><h3>Przenoszenie danych</h3><button onclick="pull(true)">🔄 Odśwież z chmury</button> <button onclick="download()">⬇ Eksportuj JSON</button> <label class="file">⬆ Importuj JSON<input type="file" accept="application/json" onchange="upload(this)"></label><p class="hint">Dane synchronizują się z chmurą (Supabase, tabela klejenia) po każdej zmianie, a kopia lokalna działa awaryjnie, gdy nie ma sieci. Import JSON zastępuje dane lokalne i w chmurze.</p><p id="last" class="hint"></p></div><div class="panel" id="bkPanel"><h3>Kopie zapasowe</h3><p class="hint">Co wieczór system zapisuje kopię danych tego etapu (ostatnie 30 dni) i robi to też na żądanie. Przywrócenie zastępuje dane w chmurze wybraną kopią, a przed tym zapisuje bieżący stan jako kopię „przed przywróceniem”. Pozostałe urządzenia po przywróceniu same pobiorą dane z chmury od nowa.</p><div class="grid"><label>Klucz kopii zapasowych<input id="bkKey" type="password" autocomplete="off"></label><label>Kopia<select id="bkList"></select></label></div><button onclick="bkLoad()">📋 Pokaż kopie</button> <button onclick="bkTake()">💾 Zrób kopię teraz</button> <button class="danger" onclick="bkRestore()">♻️ Przywróć wybraną kopię</button><p id="bkMsg" class="hint"></p></div></section>
 
 <section id="corr"></section>
 <section id="log"><div class="panel"><h3>Dziennik zdarzeń</h3><div class="grid"><label>Szukaj<input id="lQ" oninput="renderLog()"></label><label>Użytkownik<select id="lU" onchange="renderLog()"></select></label><label>Zdarzenie<select id="lA" onchange="renderLog()"></select></label><label>Od<input id="lF" type="date" onchange="renderLog()"></label><label>Do<input id="lT" type="date" onchange="renderLog()"></label></div><div id="logList" class="xs"></div><p class="hint">Log jest tylko do odczytu (ostatnie 3000 zdarzeń).</p></div></section>
@@ -89,7 +89,7 @@ label.file input{display:none}
 <label>Uwagi<textarea id="eNotes"></textarea></label><button class="ok" onclick="saveEdit()">💾 Zapisz zmiany</button> <button onclick="cancelEdit()">Anuluj</button></div></div>
 
 <script>
-const APP_VERSION='1.10.0',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
+const APP_VERSION='1.11.0',API_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/klejenie-sync',LS='klejenieOffline';
 const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'),today=()=>ymd(new Date());
 const fdate=d=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||'');return m?m[3]+'.'+m[2]+'.'+m[1]:(d||'—')};
@@ -111,7 +111,18 @@ const orderByName=n=>ords().find(x=>x.name===n);
 function pack(cl=true){return{format:'system-produkcji/klejenie',version:1,app_version:APP_VERSION,exported_at:new Date().toISOString(),data:{orders:state.orders,entries:state.entries,settings:{employees:state.cfg.employees,default_shift:state.cfg.shift,default_people:state.cfg.people,idle_min:state.cfg.idleMin,waste_reasons:state.cfg.reasons||[],waste_reasons_covers:state.cfg.reasons_covers||[],waste_reasons_cartons:state.cfg.reasons_cartons||[],waste_reasons_filters:state.cfg.reasons_filters||[],work_days:state.cfg.workDays,fc_window:state.cfg.fcWin,company:state.cfg.company,report_footer:state.cfg.footer,pdf_history:state.cfg.pdfHistory}},sync:{...(cl?{users:state.users,log:state.log,deleted_users:state.deletedUsers}:{}),deleted_entries:state.deletedEntries,deleted_orders:state.deletedOrders,deleted_order_ts:state.deletedOrderTs,cfg_updated:state.cfgUpdated,last_modified:state.lastModified}}}
 function unpack(p){const d=p.data||p,s=d.settings||{},y=p.sync||{};return{orders:d.orders||[],entries:d.entries||[],cfg:{employees:s.employees||def.employees,shift:String(s.default_shift||'1'),people:+s.default_people||1,idleMin:s.idle_min??30,reasons:Array.isArray(s.waste_reasons)?s.waste_reasons.map(String):[],reasons_covers:Array.isArray(s.waste_reasons_covers)?s.waste_reasons_covers.map(String):[],reasons_cartons:Array.isArray(s.waste_reasons_cartons)?s.waste_reasons_cartons.map(String):[],reasons_filters:Array.isArray(s.waste_reasons_filters)?s.waste_reasons_filters.map(String):[],workDays:String(s.work_days||'5'),fcWin:+s.fc_window||7,company:s.company||'',footer:s.report_footer||'',pdfHistory:s.pdf_history||'TAK'},users:y.users||[],log:y.log||[],deletedUsers:y.deleted_users||[],deletedEntries:y.deleted_entries||[],deletedOrders:y.deleted_orders||[],deletedOrderTs:y.deleted_order_ts||{},cfgUpdated:y.cfg_updated||0,lastModified:y.last_modified||'—',hasSettings:!!d.settings}}
 let cloudVer=null;
-async function getCloud(){const res=await fetch(API_URL+'?nocache='+Date.now(),{cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);{const v=res.headers.get('x-doc-version');cloudVer=v===null?null:(isNaN(+v)?null:+v)}const p=await res.json();return unpack(p&&typeof p==='object'?p:{})}
+/* ===== Kopie zapasowe (funkcja mes-backup) ===== */
+const BK_URL='https://hjadatjvyrjexgmicggi.supabase.co/functions/v1/mes-backup',BK_STAGE='klejenie',BK_LS=['klejenieOffline'];let bkChk=0;
+function bkWipe(e){try{localStorage.setItem('mesRestoreEpoch_'+BK_STAGE,String(e))}catch(x){}let had=false;BK_LS.forEach(n=>{const v=localStorage.getItem(n);if(v){had=true;try{localStorage.setItem(n+'_przed_przywroceniem',v)}catch(x){}localStorage.removeItem(n)}});return had}
+async function restoreCheck(){if(Date.now()-bkChk<5000)return;bkChk=Date.now();let e=0;try{const c=new AbortController(),t=setTimeout(()=>c.abort(),4000);const r=await fetch(BK_URL+'?stage='+BK_STAGE+'&epoch=1&t='+Date.now(),{cache:'no-store',signal:c.signal});clearTimeout(t);if(!r.ok)return;e=+((await r.json()).epoch)||0}catch(x){return}
+ if(!e||e<=(+(localStorage.getItem('mesRestoreEpoch_'+BK_STAGE)||0)))return;
+ if(bkWipe(e)){location.reload();await new Promise(()=>{})}}
+async function bkCall(method,q,body){if(!can('data'))throw new Error('Brak uprawnień.');const key=$('bkKey').value.trim();if(!key)throw new Error('Wpisz klucz kopii zapasowych.');const r=await fetch(BK_URL+q,{method,cache:'no-store',headers:{'Content-Type':'application/json','x-backup-key':key},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j}
+const bkMsg=t=>{$('bkMsg').textContent=t},BK_REASON={daily:'codzienna',manual:'ręczna','pre-restore':'przed przywróceniem'};
+async function bkLoad(){bkMsg('Pobieranie listy…');try{const j=await bkCall('GET','?stage='+BK_STAGE),s=$('bkList');s.innerHTML='';(j.items||[]).forEach(x=>{const o=document.createElement('option'),d=new Date(x.taken_at);o.value=x.id;o.textContent=x.day+' '+d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})+' · '+(BK_REASON[x.reason]||x.reason)+' · wpisy '+x.entries+' · zlecenia '+x.orders;s.appendChild(o)});bkMsg((j.items||[]).length?'Kopii: '+j.items.length+'.':'Brak kopii.')}catch(e){bkMsg('Błąd: '+e.message)}}
+async function bkTake(){bkMsg('Zapisywanie kopii…');try{const j=await bkCall('POST','',{action:'take',stage:BK_STAGE});bkMsg('Zapisano kopię.');await bkLoad()}catch(e){bkMsg('Błąd: '+e.message)}}
+async function bkRestore(){if(!can('data'))return denied();const s=$('bkList');if(!s.value)return alert('Najpierw kliknij „Pokaż kopie” i wybierz jedną z listy.');const txt=s.selectedOptions[0].textContent;if(!confirm('Przywrócić kopię: '+txt+'?\n\nDane tego etapu w chmurze zostaną zastąpione tą kopią. Wpisy zrobione po jej utworzeniu znikną z bieżących danych (przed przywróceniem system zapisze bieżący stan jako osobną kopię).'))return;if(prompt('Aby potwierdzić, wpisz: PRZYWRÓĆ')!=='PRZYWRÓĆ')return;bkMsg('Przywracanie…');try{const j=await bkCall('POST','',{action:'restore',id:+s.value,stage:BK_STAGE});bkWipe(j.epoch);alert('Przywrócono kopię z dnia '+j.day+'. Aplikacja załaduje dane z chmury od nowa.');location.reload()}catch(e){bkMsg('Błąd: '+e.message)}}
+async function getCloud(){await restoreCheck();const res=await fetch(API_URL+'?nocache='+Date.now(),{cache:'no-store'});if(!res.ok)throw new Error('HTTP '+res.status);{const v=res.headers.get('x-doc-version');cloudVer=v===null?null:(isNaN(+v)?null:+v)}const p=await res.json();return unpack(p&&typeof p==='object'?p:{})}
 const latest=(a,b,key)=>{const m=new Map();[...a,...b].forEach(x=>{const k=key(x),o=m.get(k);if(!o||(+x.updated||0)>(+o.updated||0))m.set(k,x)});return[...m.values()]};
 /* znacznik czasu usunięcia zlecenia: ponownie dodane zlecenie o tej samej nazwie (updated > ts) nie jest kasowane przez starą 'tombstone' z chmury; stare tombstony bez ts działają tylko na zlecenia sprzed ORD_CUT */
 const ORD_CUT=1793399955334;
@@ -565,24 +576,40 @@ function buildOrderReport(name){
     byDate=(a,b)=>(a.date||'').localeCompare(b.date||''),
     R=W.R.filter(r=>r.order===name&&r.produced>0).sort(byDate),P=W.P.filter(p=>(W.ro.get(p.src_uid)?.order||p.order)===name).sort(byDate),G=state.entries.filter(e=>e.order===name).sort((a,b)=>byDate(a,b)||(+a.created||0)-(+b.created||0));
   let cmds=[],Y=0;
-  const f2=v=>(+v).toFixed(2),pct=(w,p)=>(p+w)?(w/(p+w)*100).toFixed(1):'0.0';
-  const rect=(x,y,w,h,col)=>cmds.push(col+' rg '+f2(x)+' '+f2(PH-y-h)+' '+f2(w)+' '+f2(h)+' re f');
-  const hline=(x1,x2,y,col,wd)=>cmds.push(col+' RG '+(wd||0.5)+' w '+f2(x1)+' '+f2(PH-y)+' m '+f2(x2)+' '+f2(PH-y)+' l S');
+  const f2=v=>(+v).toFixed(2),pct=(w,p)=>(p+w)?(w/(p+w)*100).toFixed(1):'0.0';
+
+  const rect=(x,y,w,h,col)=>cmds.push(col+' rg '+f2(x)+' '+f2(PH-y-h)+' '+f2(w)+' '+f2(h)+' re f');
+
+  const hline=(x1,x2,y,col,wd)=>cmds.push(col+' RG '+(wd||0.5)+' w '+f2(x1)+' '+f2(PH-y)+' m '+f2(x2)+' '+f2(PH-y)+' l S');
+
   const text=(x,y,s,sz,b,col,al)=>{s=clean(s);if(!s)return;let xx=x;if(al==='r')xx=x-tw(s,sz,b);else if(al==='c')xx=x-tw(s,sz,b)/2;cmds.push((col||PDFC.ink)+' rg BT /'+(b?'F2':'F1')+' '+sz+' Tf '+f2(xx)+' '+f2(PH-y)+' Td '+hexs(s,b)+' Tj ET')};
   const newPage=()=>{pages.push(cmds);cmds=[];text(PM,30,fit(title,8,false,CW-60),8,false,PDFC.grey);text(PW-PM,30,'v'+APP_VERSION,8,false,PDFC.grey,'r');hline(PM,PW-PM,38,PDFC.line);Y=54};
-  const ensure=h=>{if(Y+h>PH-52)newPage()};
-  const heading=(t,sz)=>{ensure(40);text(PM,Y+12,fit(t,sz||11,true,CW),sz||11,true,PDFC.navy);Y+=18;hline(PM,PW-PM,Y,PDFC.line,0.8);Y+=8};
-  const sub=t=>{ensure(60);text(PM,Y+8,t,7,true,PDFC.grey);Y+=14};
-  const tiles=items=>{const per=4,gap=8,w=(CW-gap*(per-1))/per,h=38;for(let i=0;i<items.length;i+=per){ensure(h+gap);items.slice(i,i+per).forEach((it,j)=>{const x=PM+j*(w+gap);rect(x,Y,w,h,PDFC.pale);text(x+8,Y+13,it[0],7,true,PDFC.grey);text(x+8,Y+30,fit(it[1],14,true,w-14),14,true,it[2]?PDFC.red:PDFC.navy)});Y+=h+gap}};
-  const table=(cols,rows)=>{const fixed=cols.reduce((s,k)=>s+(k.w==='*'?0:k.w),0),ws=cols.map(k=>k.w==='*'?CW-fixed:k.w),fs=7.5,lh=9.5,pad=4;
-    const ax=(i,al)=>al==='r'?ws[i]-pad:al==='c'?ws[i]/2:pad;
-    const head=()=>{rect(PM,Y,CW,18,PDFC.navy);let x=PM;cols.forEach((k,i)=>{text(x+ax(i,k.a),Y+12,fit(k.h,6.8,true,ws[i]-2*pad),6.8,true,PDFC.white,k.a);x+=ws[i]});Y+=18};
-    ensure(40);head();
-    rows.forEach((r,ri)=>{const cells=r.map((v,i)=>{const o=(v&&typeof v==='object')?v:{t:v};return{...o,lines:wrap(o.t,fs,o.b,ws[i]-2*pad)}}),n=Math.max(...cells.map(z=>z.lines.length)),h=n*lh+6;
-      if(Y+h>PH-52){newPage();head()}
-      if(ri%2)rect(PM,Y,CW,h,PDFC.zebra);
-      let x=PM;cells.forEach((z,i)=>{z.lines.forEach((l,k)=>text(x+ax(i,cols[i].a),Y+10+k*lh,l,fs,z.b,z.c||PDFC.ink,cols[i].a));x+=ws[i]});
-      hline(PM,PW-PM,Y+h,PDFC.line,0.4);Y+=h});
+  const ensure=h=>{if(Y+h>PH-52)newPage()};
+
+  const heading=(t,sz)=>{ensure(40);text(PM,Y+12,fit(t,sz||11,true,CW),sz||11,true,PDFC.navy);Y+=18;hline(PM,PW-PM,Y,PDFC.line,0.8);Y+=8};
+
+  const sub=t=>{ensure(60);text(PM,Y+8,t,7,true,PDFC.grey);Y+=14};
+
+  const tiles=items=>{const per=4,gap=8,w=(CW-gap*(per-1))/per,h=38;for(let i=0;i<items.length;i+=per){ensure(h+gap);items.slice(i,i+per).forEach((it,j)=>{const x=PM+j*(w+gap);rect(x,Y,w,h,PDFC.pale);text(x+8,Y+13,it[0],7,true,PDFC.grey);text(x+8,Y+30,fit(it[1],14,true,w-14),14,true,it[2]?PDFC.red:PDFC.navy)});Y+=h+gap}};
+
+  const table=(cols,rows)=>{const fixed=cols.reduce((s,k)=>s+(k.w==='*'?0:k.w),0),ws=cols.map(k=>k.w==='*'?CW-fixed:k.w),fs=7.5,lh=9.5,pad=4;
+
+    const ax=(i,al)=>al==='r'?ws[i]-pad:al==='c'?ws[i]/2:pad;
+
+    const head=()=>{rect(PM,Y,CW,18,PDFC.navy);let x=PM;cols.forEach((k,i)=>{text(x+ax(i,k.a),Y+12,fit(k.h,6.8,true,ws[i]-2*pad),6.8,true,PDFC.white,k.a);x+=ws[i]});Y+=18};
+
+    ensure(40);head();
+
+    rows.forEach((r,ri)=>{const cells=r.map((v,i)=>{const o=(v&&typeof v==='object')?v:{t:v};return{...o,lines:wrap(o.t,fs,o.b,ws[i]-2*pad)}}),n=Math.max(...cells.map(z=>z.lines.length)),h=n*lh+6;
+
+      if(Y+h>PH-52){newPage();head()}
+
+      if(ri%2)rect(PM,Y,CW,h,PDFC.zebra);
+
+      let x=PM;cells.forEach((z,i)=>{z.lines.forEach((l,k)=>text(x+ax(i,cols[i].a),Y+10+k*lh,l,fs,z.b,z.c||PDFC.ink,cols[i].a));x+=ws[i]});
+
+      hline(PM,PW-PM,Y+h,PDFC.line,0.4);Y+=h});
+
     Y+=10};
   const span=a=>{const d=a.map(x=>x.date).filter(Boolean).sort();return d.length?fdate(d[0])+' – '+fdate(d[d.length-1]):'—'},days=a=>String(new Set(a.map(x=>x.date).filter(Boolean)).size),
     gAll=sum(G,'produced'),allD=[...R,...P,...G].map(x=>x.date).filter(Boolean).sort(),T=(l,v)=>[{t:l,b:true},{t:String(v),b:true}];
